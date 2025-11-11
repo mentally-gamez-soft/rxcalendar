@@ -1,0 +1,9 @@
+[project]
+name = "rxcalendar"
+version = "0.1.0"
+description = "2026 Calendar with weekday comments and JSON export"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "reflex>=0.8.18",
+]
