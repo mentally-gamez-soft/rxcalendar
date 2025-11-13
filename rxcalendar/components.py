@@ -704,7 +704,7 @@ def status_history_dialog() -> rx.Component:
 def bulk_hours_dialog() -> rx.Component:
     """Dialog for bulk-setting hours for a month (Manager/HR only)."""
 
-    # Generate time options from 7.0 to 19.0 in 0.25 increments
+    # Generate time options from 5.0 to 19.0 in 0.25 increments
     def time_option(hours: float) -> rx.Component:
         """Create a time option."""
         # Convert to hours:minutes format
@@ -714,7 +714,7 @@ def bulk_hours_dialog() -> rx.Component:
         return rx.el.option(label, value=str(hours))
     
     # Create list of time values
-    time_values = [7.0 + (i * 0.25) for i in range(49)]  # 7.0 to 19.0 in 0.25 steps
+    time_values = [5.0 + (i * 0.25) for i in range(57)]  # 5.0 to 19.0 in 0.25 steps
     
     return rx.dialog.root(
         rx.dialog.content(

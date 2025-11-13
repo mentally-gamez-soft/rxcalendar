@@ -400,8 +400,30 @@ class CalendarState(rx.State):
         
         if self.current_user_role == "hr":
             return True  # HR can edit any calendar
+
+        if self.current_user_role == "manager" and self.viewed_user_project_name == self.current_project_name and self.viewed_user_role != "hr":
+            return True  # Managers can modify employees in their own project (not other managers or HR)
         
         return False  # Managers and employees cannot edit others' calendars
+    
+    @rx.var
+    def viewed_user_role(self) -> str:
+        """Get the role of the user whose calendar is being viewed."""
+        for user in self.USERS:
+            if user["id"] == self.viewed_user_id:
+                return user["role"]
+        return "employee"
+    
+    @rx.var
+    def viewed_user_project_name(self) -> str:
+        """Get the project name of the user whose calendar is being viewed."""
+        for user in self.USERS:
+            if user["id"] == self.viewed_user_id:
+                project_id = user.get("project_id", "")
+                for proj in self.PROJECTS:
+                    if proj["id"] == project_id:
+                        return proj["name"]
+        return "Unknown"
     
     @rx.var
     def viewed_user_name(self) -> str:
