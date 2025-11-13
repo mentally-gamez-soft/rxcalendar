@@ -96,6 +96,10 @@ class CalendarState(rx.State):
         "on vacation"
     ]
     
+    MANAGER_ONLY_FLAGS = [
+        "project_special_worktime"
+    ]
+    
     EMPLOYEE_FLAGS = [
         "extra day off",
         "on vacation"
@@ -183,7 +187,8 @@ class CalendarState(rx.State):
         ("on vacation", "on vacation"),
         ("on vacation client closed", "on vacation client closed"),
         ("regional day off", "regional day off"),
-        ("extra day off", "extra day off")
+        ("extra day off", "extra day off"),
+        ("project_special_worktime", "project_special_worktime")
     ]
     
     FLAG_COLORS = {
@@ -194,6 +199,7 @@ class CalendarState(rx.State):
         "on vacation client closed": "#2f855a",                          # Green
         "regional day off": "#d53f8c",                          # Pink
         "extra day off": "#718096",                   # Gray
+        "project_special_worktime": "#0891b2",          # Cyan/Teal
         "": "var(--white)",
     }
     
@@ -459,7 +465,7 @@ class CalendarState(rx.State):
         elif role == "manager":
             # Managers can set HR_MANAGER_FLAGS
             for flag_key, flag_label in self.FLAG_CHOICES:
-                if flag_key in self.HR_MANAGER_FLAGS:
+                if flag_key in self.HR_MANAGER_FLAGS or flag_key in self.MANAGER_ONLY_FLAGS:
                     allowed.append((flag_key, flag_label))
         else:  # employee
             # Employees can only set EMPLOYEE_FLAGS
@@ -548,10 +554,19 @@ class CalendarState(rx.State):
         role = self.current_user_role
         
         if role == "hr":
+            # HR can modify any flag EXCEPT create project_special_worktime
+            if flag == "project_special_worktime":
+                # HR can only modify existing project_special_worktime, not create new
+                # This check is done in save_comment by checking if date already has this flag
+                return True
             return True
         elif role == "manager":
-            return flag in self.HR_MANAGER_FLAGS
+            # Managers can modify HR_MANAGER_FLAGS and create/modify project_special_worktime
+            return flag in self.HR_MANAGER_FLAGS or flag in self.MANAGER_ONLY_FLAGS
         else:  # employee
+            # Employees can modify EMPLOYEE_FLAGS and existing project_special_worktime
+            if flag == "project_special_worktime":
+                return True  # Check for existing flag is done in save_comment
             return flag in self.EMPLOYEE_FLAGS
     
     def can_edit_date(self, date_iso: str) -> bool:
@@ -692,7 +707,17 @@ class CalendarState(rx.State):
         # Prepare values
         comment = self.current_comment.strip()
         flag = self.current_flag
-        hours = 0.0 if flag else max(0.0, min(12.0, round(float(self.current_hours) * 2) / 2.0))
+        
+        # Hours validation based on flag type
+        if flag == "project_special_worktime":
+            # Range 5.0 to 19.0 in 0.25 increments
+            hours = max(5.0, min(19.0, round(float(self.current_hours) * 4) / 4.0))
+        elif flag:
+            # Other flags: 0 hours
+            hours = 0.0
+        else:
+            # Blank flag: 0-12 hours in 0.5 increments
+            hours = max(0.0, min(12.0, round(float(self.current_hours) * 4) / 4.0))
         
         # Check if user has permission to set this flag
         if not self.can_modify_flag(flag):
@@ -835,6 +860,152 @@ class CalendarState(rx.State):
                 position="top-center",
                 duration=6000
             )
+        
+        # Manager-only flag propagation: project_special_worktime
+        if flag == "project_special_worktime":
+            # Additional permission checks for project_special_worktime
+            if self.current_user_role == "manager":
+                # Manager can create/modify - this will propagate
+                pass
+            elif self.current_user_role in ["employee", "hr"]:
+                # Employee/HR can only modify existing project_special_worktime, not create
+                user_id = self.viewed_user_id
+                for date_iso in allowed_dates:
+                    existing_flag = self._flags_cache.get(user_id, {}).get(date_iso, "")
+                    if existing_flag != "project_special_worktime":
+                        return rx.toast.error(
+                            f"Access Denied: Only managers can create 'project_special_worktime'. You can only modify existing ones.",
+                            position="top-center",
+                            duration=5000
+                        )
+            
+            # Only managers can propagate project_special_worktime
+            if self.current_user_role == "manager":
+                # Validate hours range for project_special_worktime (5.0 to 19.0)
+                hours = max(5.0, min(19.0, round(float(self.current_hours) * 4) / 4.0))  # 0.25 increments
+                
+                # Get the project of the viewed user's calendar
+                viewed_user = next((u for u in self.USERS if u["id"] == self.viewed_user_id), None)
+                if not viewed_user:
+                    return rx.toast.error(
+                        "Error: Cannot determine project for propagation",
+                        position="top-center",
+                        duration=5000
+                    )
+                
+                viewed_project_id = viewed_user.get("project_id", "")
+                manager_project_id = self.current_user.get("project_id", "")
+                
+                # Manager can only set project_special_worktime for their own project
+                if viewed_project_id != manager_project_id:
+                    return rx.toast.error(
+                        "Access Denied: Managers can only set project_special_worktime for their own project",
+                        position="top-center",
+                        duration=5000
+                    )
+                
+                # Propagate to all EMPLOYEES in the same project
+                target_users = [u for u in self.USERS 
+                               if u.get("project_id") == viewed_project_id 
+                               and u.get("role") == "employee"]
+                
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                total_dates = 0
+                skipped_dates = 0
+                
+                # Ensure notifications structure
+                for u in target_users:
+                    if u["id"] not in self.notifications:
+                        self.notifications[u["id"]] = []
+                
+                for date_iso in allowed_dates:
+                    # Only propagate within calendar year 2026
+                    try:
+                        if int(date_iso[:4]) != 2026:
+                            continue
+                    except Exception:
+                        continue
+                    
+                    for user in target_users:
+                        uid = user["id"]
+                        # Init user structures
+                        if uid not in self.history:
+                            self.history[uid] = {}
+                        if uid not in self._comments_cache:
+                            self._comments_cache[uid] = {}
+                        if uid not in self._flags_cache:
+                            self._flags_cache[uid] = {}
+                        if uid not in self._hours_cache:
+                            self._hours_cache[uid] = {}
+                        if uid not in self._flag_colors_cache:
+                            self._flag_colors_cache[uid] = {}
+                        
+                        # Check conflict: only overwrite if blank or already project_special_worktime
+                        existing_flag = self._flags_cache[uid].get(date_iso, "")
+                        if existing_flag and existing_flag != "project_special_worktime":
+                            skipped_dates += 1
+                            continue  # Skip this date for this user
+                        
+                        prev_comment = self._comments_cache[uid].get(date_iso, "")
+                        prev_flag = self._flags_cache[uid].get(date_iso, "")
+                        prev_hours = self._hours_cache[uid].get(date_iso, 0.0)
+                        
+                        new_comment = comment
+                        new_flag = flag
+                        new_hours = hours
+                        
+                        actions = []
+                        if new_comment != prev_comment:
+                            actions.append("comment modified" if prev_comment else "comment added")
+                        if new_flag != prev_flag:
+                            actions.append("flag changed")
+                        if new_hours != prev_hours:
+                            actions.append("hours changed")
+                        if not actions:
+                            actions.append("project worktime set")
+                        
+                        action_desc = ", ".join(actions) + " (project-wide)"
+                        
+                        entry = {
+                            "timestamp": timestamp,
+                            "action": action_desc,
+                            "comment": new_comment,
+                            "flag": new_flag,
+                            "hours": new_hours,
+                            "user": self.current_user_name,
+                            "user_role": self.current_user_role,
+                            "propagated_by": self.current_user_name,
+                        }
+                        
+                        if date_iso not in self.history[uid]:
+                            self.history[uid][date_iso] = []
+                        self.history[uid][date_iso].append(entry)
+                        
+                        self._comments_cache[uid][date_iso] = new_comment
+                        self._flags_cache[uid][date_iso] = new_flag
+                        self._hours_cache[uid][date_iso] = new_hours
+                        self._flag_colors_cache[uid][date_iso] = self.FLAG_COLORS.get(new_flag, "transparent")
+                        
+                        # Notification for employee
+                        project_name = next((p["name"] for p in self.PROJECTS if p["id"] == viewed_project_id), "Unknown")
+                        notif = f"Project special worktime set for {project_name} - {new_hours}h on {date_iso} by {self.current_user_name} (Manager)."
+                        self.notifications[uid].append(notif)
+                    
+                    total_dates += 1
+                
+                # Close dialog, reset, toast
+                self.close_comment_dialog()
+                self.reset_range_selection()
+                
+                msg = f"Project worktime applied to {total_dates} date(s) across {len(target_users)} employees in project."
+                if skipped_dates > 0:
+                    msg += f" Skipped {skipped_dates} date(s) with existing flags."
+                
+                return rx.toast.success(
+                    msg,
+                    position="top-center",
+                    duration=6000
+                )
 
         # Local (non-propagating) update
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

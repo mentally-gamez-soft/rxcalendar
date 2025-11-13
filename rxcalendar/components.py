@@ -246,20 +246,45 @@ def comment_dialog() -> rx.Component:
                 ),
                 rx.box(),
             ),
-            # Hours input (only enabled if blank flag)
-            rx.box(
-                rx.text("Hours (0 - 12, step 0.5):", size="2", weight="bold"),
-                rx.el.input(
-                    type="number",
-                    step="0.5",
-                    min="0",
-                    max="12",
-                    value=CalendarState.current_hours.to(str),
-                    on_change=CalendarState.set_current_hours,
-                    width="100%",
-                    margin_top="8px",
-                    padding="6px",
-                    disabled=rx.cond(CalendarState.current_flag != "", True, False),
+            # Hours input (different ranges for different flags)
+            rx.cond(
+                CalendarState.current_flag == "project_special_worktime",
+                # Project special worktime: 5.0 to 19.0 in 0.25 increments
+                rx.box(
+                    rx.text("Hours (5.0 - 19.0, step 0.25):", size="2", weight="bold"),
+                    rx.el.input(
+                        type="number",
+                        step="0.25",
+                        min="5.0",
+                        max="19.0",
+                        value=CalendarState.current_hours.to(str),
+                        on_change=CalendarState.set_current_hours,
+                        width="100%",
+                        margin_top="8px",
+                        padding="6px",
+                    ),
+                    rx.text(
+                        "⚠️ This will set special project worktime and propagate to all employees in the project.",
+                        size="1",
+                        color="var(--cyan-10)",
+                        margin_top="4px",
+                    ),
+                ),
+                # Blank flag or other: 0-12 hours in 0.5 increments (only for blank)
+                rx.box(
+                    rx.text("Hours (0 - 12, step 0.5):", size="2", weight="bold"),
+                    rx.el.input(
+                        type="number",
+                        step="0.5",
+                        min="0",
+                        max="12",
+                        value=CalendarState.current_hours.to(str),
+                        on_change=CalendarState.set_current_hours,
+                        width="100%",
+                        margin_top="8px",
+                        padding="6px",
+                        disabled=rx.cond(CalendarState.current_flag != "", True, False),
+                    ),
                 ),
             ),
             rx.flex(
