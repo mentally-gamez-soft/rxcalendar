@@ -14,6 +14,7 @@ from .components import (
     company_holidays_dialog,
     bulk_hours_dialog,
     bulk_hours_confirmation_dialog,
+    quota_manager_dialog,
     calendar_status_panel,
     hr_self_validate_dialog,
     manager_validate_dialog,
@@ -22,6 +23,8 @@ from .components import (
     export_dialog,
     import_dialog,
     import_confirmation_dialog,
+    summary_panel,
+    export_image_dialog,
 )
 
 
@@ -31,13 +34,20 @@ def index() -> rx.Component:
         rx.color_mode.button(position="top-right"),
         header(),
         calendar_status_panel(),
-        calendar_grid(),
+        rx.hstack(
+            calendar_grid(),
+            summary_panel(),
+            spacing="0",
+            width="100%",
+            align="start",
+        ),
         stats_footer(),
         comment_dialog(),
         history_dialog(),
         company_holidays_dialog(),
         bulk_hours_dialog(),
         bulk_hours_confirmation_dialog(),
+        quota_manager_dialog(),
         user_selector_dialog(),
         hr_self_validate_dialog(),
         manager_validate_dialog(),
@@ -46,6 +56,7 @@ def index() -> rx.Component:
         export_dialog(),
         import_dialog(),
         import_confirmation_dialog(),
+        export_image_dialog(),
         width="100%",
         min_height="100vh",
     )

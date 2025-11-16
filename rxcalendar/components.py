@@ -50,18 +50,30 @@ def month_calendar(month: int, year: int = 2026) -> rx.Component:
 
 
 def flag_selector() -> rx.Component:
-    """Dynamic flag selector based on user role."""
+    """Dynamic flag selector based on user role with quota information."""
     
     def flag_option(flag_tuple: rx.Var) -> rx.Component:
-        """Create an option element for a flag."""
+        """Create an option element for a flag with disabled state for exhausted quotas."""
+        flag_value = flag_tuple[0].to(str)
+        flag_label = flag_tuple[1].to(str)
+        
+        # Check if this is a disabled option (ends with _DISABLED)
+        is_disabled = flag_value.contains("_DISABLED")
+        
         return rx.el.option(
-            flag_tuple[1].to(str),
-            value=flag_tuple[0].to(str),
+            flag_label,
+            value=rx.cond(is_disabled, "", flag_value),  # Empty value if disabled
+            disabled=is_disabled,
+            style=rx.cond(
+                is_disabled,
+                {"color": "var(--gray-8)", "font-style": "italic"},
+                {}
+            )
         )
     
     return rx.el.select(
         rx.foreach(
-            CalendarState.allowed_flags,
+            CalendarState.flag_choices_with_quota,
             flag_option,
         ),
         value=CalendarState.current_flag,
@@ -120,15 +132,39 @@ def user_selector_dialog() -> rx.Component:
         
         return rx.vstack(
             rx.hstack(
+                rx.icon("briefcase", size=16, color="var(--blue-9)"),
+                rx.text(
+                    project_name.to(str),
+                    size="3",
+                    weight="medium",
+                    color="var(--blue-11)",
+                ),
+                spacing="2",
+                align="center",
+                padding_left="16px",
+            ),
+            rx.foreach(regions, region_group),
+            spacing="2",
+            width="100%",
+            margin_bottom="12px",
+        )
+    
+    def division_group(division_tuple: rx.Var) -> rx.Component:
+        """Display a division group with its projects, regions, and users."""
+        division_name = division_tuple[0]
+        projects = division_tuple[1]
+        
+        return rx.vstack(
+            rx.hstack(
                 rx.icon("building-2", size=18),
                 rx.heading(
-                    f"Project: {project_name.to(str)}",
+                    division_name.to(str),
                     size="4",
                 ),
                 spacing="2",
                 align="center",
             ),
-            rx.foreach(regions, region_group),
+            rx.foreach(projects, project_group),
             spacing="2",
             width="100%",
             margin_bottom="16px",
@@ -146,7 +182,7 @@ def user_selector_dialog() -> rx.Component:
                 rx.vstack(
                     rx.foreach(
                         CalendarState.users_grouped_by_project,
-                        project_group,
+                        division_group,
                     ),
                     spacing="4",
                     width="100%",
@@ -272,10 +308,10 @@ def comment_dialog() -> rx.Component:
                 ),
                 # Blank flag or other: 0-12 hours in 0.5 increments (only for blank)
                 rx.box(
-                    rx.text("Hours (0 - 12, step 0.5):", size="2", weight="bold"),
+                    rx.text("Hours (0 - 12, step 0.25):", size="2", weight="bold"),
                     rx.el.input(
                         type="number",
-                        step="0.5",
+                        step="0.25",
                         min="0",
                         max="12",
                         value=CalendarState.current_hours.to(str),
@@ -435,13 +471,29 @@ def history_dialog() -> rx.Component:
 
 
 def export_button() -> rx.Component:
-    """Button to export calendar comments as JSON."""
-    return rx.button(
-        rx.icon("download"),
-        "Export Comments as JSON",
-        on_click=CalendarState.export_to_json,
-        size="3",
-        color_scheme="green",
+    """Buttons to export calendar - JSON for all, Image for managers/HR."""
+    return rx.hstack(
+        rx.button(
+            rx.icon("download", size=16),
+            "JSON",
+            on_click=CalendarState.export_to_json,
+            size="2",
+            color_scheme="green",
+            variant="soft",
+        ),
+        rx.cond(
+            CalendarState.current_user_role != "employee",
+            rx.button(
+                rx.icon("image", size=16),
+                "Image",
+                on_click=CalendarState.open_export_image_dialog,
+                size="2",
+                color_scheme="blue",
+                variant="soft",
+            ),
+            rx.box(),
+        ),
+        spacing="2",
     )
 
 
@@ -785,6 +837,19 @@ def bulk_hours_dialog() -> rx.Component:
                     width="100%",
                     margin_top="12px",
                 ),
+                # Apply to all months checkbox
+                rx.box(
+                    rx.checkbox(
+                        "Apply to all 12 months (entire year)",
+                        checked=CalendarState.bulk_apply_to_all_months,
+                        on_change=CalendarState.set_bulk_apply_to_all_months,
+                        size="2",
+                    ),
+                    margin_top="16px",
+                    padding="12px",
+                    background="var(--purple-2)",
+                    border_radius="6px",
+                ),
                 # Info message
                 rx.box(
                     rx.text(
@@ -792,7 +857,7 @@ def bulk_hours_dialog() -> rx.Component:
                         size="2",
                         color="var(--blue-10)",
                     ),
-                    margin_top="16px",
+                    margin_top="8px",
                     padding="12px",
                     background="var(--blue-2)",
                     border_radius="6px",
@@ -837,15 +902,16 @@ def bulk_hours_confirmation_dialog() -> rx.Component:
                         size="2",
                     ),
                     rx.text(
-                        f"⚠️ {CalendarState.bulk_overwrite_count.to(str)} day(s) already have hours set and will be overwritten.",
+                        f"⚠️ {CalendarState.bulk_overwrite_count.to(str)} day(s) already have hours set.",
                         size="2",
                         weight="bold",
                         color="var(--orange-11)",
                     ),
                     rx.text(
-                        "Do you want to proceed?",
+                        "How do you want to handle conflicts?",
                         size="2",
-                        margin_top="8px",
+                        weight="bold",
+                        margin_top="12px",
                     ),
                     spacing="2",
                 ),
@@ -861,8 +927,13 @@ def bulk_hours_confirmation_dialog() -> rx.Component:
                     ),
                 ),
                 rx.button(
-                    "Yes, Overwrite",
-                    on_click=CalendarState.apply_bulk_hours,
+                    "Skip Conflicts",
+                    on_click=CalendarState.bulk_hours_skip,
+                    color_scheme="blue",
+                ),
+                rx.button(
+                    "Overwrite All",
+                    on_click=CalendarState.bulk_hours_overwrite,
                     color_scheme="orange",
                 ),
                 spacing="3",
@@ -870,9 +941,119 @@ def bulk_hours_confirmation_dialog() -> rx.Component:
                 justify="end",
                 width="100%",
             ),
-            max_width="450px",
+            max_width="500px",
         ),
         open=CalendarState.show_bulk_hours_confirmation,
+    )
+
+
+def quota_manager_dialog() -> rx.Component:
+    """Dialog for managers/HR to set vacation quotas."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("Manage Vacation Quotas"),
+            rx.dialog.description(
+                "Set maximum allowed days for vacation and extra days off. These quotas only apply to calendars that are not yet validated (LIVE).",
+                margin_bottom="16px",
+            ),
+            rx.vstack(
+                # Global vacation quota
+                rx.box(
+                    rx.heading("Company-Wide Vacation Quota", size="3", margin_bottom="8px"),
+                    rx.text(
+                        "This quota applies to all employees for the 'on vacation' flag.",
+                        size="2",
+                        color="var(--gray-11)",
+                        margin_bottom="8px",
+                    ),
+                    rx.hstack(
+                        rx.text("Maximum Days:", size="2", weight="bold", width="120px"),
+                        rx.el.input(
+                            type="number",
+                            value=CalendarState.temp_vacation_quota.to(str),
+                            on_change=CalendarState.set_temp_vacation_quota,
+                            min="0",
+                            max="365",
+                            step="0.5",
+                            width="100px",
+                            padding="6px",
+                        ),
+                        rx.text("days", size="2", color="var(--gray-11)"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    padding="12px",
+                    background="var(--purple-2)",
+                    border_radius="6px",
+                    margin_bottom="16px",
+                ),
+                
+                # Per-user extra days quota (when editing specific user)
+                rx.cond(
+                    CalendarState.editing_user_id != "",
+                    rx.box(
+                        rx.heading("Extra Days Off Quota", size="3", margin_bottom="8px"),
+                        rx.text(
+                            f"Per-user quota for the 'extra day off' flag (User: {CalendarState.viewed_user_name}).",
+                            size="2",
+                            color="var(--gray-11)",
+                            margin_bottom="8px",
+                        ),
+                        rx.hstack(
+                            rx.text("Maximum Days:", size="2", weight="bold", width="120px"),
+                            rx.el.input(
+                                type="number",
+                                value=CalendarState.temp_extra_days_quota.to(str),
+                                on_change=CalendarState.set_temp_extra_days_quota,
+                                min="0",
+                                max="100",
+                                step="0.5",
+                                width="100px",
+                                padding="6px",
+                            ),
+                            rx.text("days", size="2", color="var(--gray-11)"),
+                            spacing="2",
+                            align="center",
+                        ),
+                        padding="12px",
+                        background="var(--gray-2)",
+                        border_radius="6px",
+                    ),
+                    rx.text(
+                        "💡 Tip: Click 'Manage Quotas' from a user's calendar to set their extra days quota.",
+                        size="2",
+                        color="var(--blue-10)",
+                        style={"font-style": "italic"},
+                    ),
+                ),
+                
+                spacing="3",
+                width="100%",
+            ),
+            rx.flex(
+                rx.dialog.close(
+                    rx.button(
+                        "Cancel",
+                        variant="soft",
+                        color_scheme="gray",
+                        on_click=CalendarState.close_quota_manager_dialog,
+                    ),
+                ),
+                rx.dialog.close(
+                    rx.button(
+                        "Save Settings",
+                        on_click=CalendarState.save_quota_settings,
+                        color_scheme="purple",
+                    ),
+                ),
+                spacing="3",
+                margin_top="16px",
+                justify="end",
+                width="100%",
+            ),
+            max_width="500px",
+        ),
+        open=CalendarState.show_quota_manager_dialog,
     )
 
 
@@ -1062,17 +1243,17 @@ def calendar_view_selector() -> rx.Component:
     def calendar_option(user: rx.Var) -> rx.Component:
         """Display a calendar view option."""
         return rx.button(
-            user["name"].to(str),
+            user.to(dict).get("name").to(str),
             rx.cond(
-                user["id"].to(str) == CalendarState.viewed_user_id,
+                user.to(dict).get("id").to(str) == CalendarState.viewed_user_id,
                 rx.icon("eye", size=14),
                 rx.box(),
             ),
-            on_click=lambda: CalendarState.view_user_calendar(user["id"]),
+            on_click=lambda: CalendarState.view_user_calendar(user.to(dict).get("id")),
             variant="soft",
             size="1",
             color_scheme=rx.cond(
-                user["id"].to(str) == CalendarState.viewed_user_id,
+                user.to(dict).get("id").to(str) == CalendarState.viewed_user_id,
                 "blue",
                 "gray"
             ),
@@ -1115,21 +1296,48 @@ def calendar_view_selector() -> rx.Component:
                 project_name.to(str),
                 size="1",
                 weight="bold",
-                color="gray",
+                # color="gray",
+                color="var(--blue-11)",
             ),
             rx.foreach(regions, region_group_compact),
             spacing="1",
             width="100%",
         )
     
+    def division_group_compact(division_tuple: rx.Var) -> rx.Component:
+        """Display a compact division group with projects and calendar buttons."""
+        division_name = division_tuple[0]
+        projects = division_tuple[1]
+        
+        return rx.vstack(
+            rx.text(
+                division_name.to(str),
+                size="2",
+                weight="bold",
+                color="var(--purple-11)",
+            ),
+            rx.foreach(projects, project_group_compact),
+            spacing="2",
+            width="100%",
+            margin_bottom="12px",
+        )
+    
     return rx.cond(
         CalendarState.current_user_role != "employee",
         rx.box(
             rx.vstack(
-                rx.text("View Calendar:", size="2", weight="bold"),
-                rx.foreach(
-                    CalendarState.users_grouped_by_project,
-                    project_group_compact,
+                rx.hstack(
+                    rx.text("View Calendar:", size="2", weight="bold"),
+                    rx.icon("chevrons-up-down", size=20, color="var(--gray-9)"),
+                    on_click=CalendarState.toggle_quickview_panel,
+                ),
+                rx.cond(
+                    CalendarState.show_quickview_panel,
+                    rx.foreach(
+                        CalendarState.users_grouped_by_project,
+                        division_group_compact,
+                    ),
+                    rx.box(),
                 ),
                 spacing="2",
             ),
@@ -1290,9 +1498,22 @@ def header() -> rx.Component:
 
 def calendar_grid() -> rx.Component:
     """Grid layout displaying all 12 months of 2026."""
-    return rx.cond(
-        CalendarState.can_employee_view_own_calendar,
-        # Full calendar view
+    return rx.box(
+        # Warning banner for non-validated calendars (employees only)
+        rx.cond(
+            ~CalendarState.can_employee_view_own_calendar,
+            rx.callout(
+                rx.callout.text(
+                    rx.text("Your calendar is being prepared and must be validated before you can interact with it.", weight="bold"),
+                ),
+                icon="lock",
+                color_scheme="orange",
+                size="3",
+                margin_bottom="6",
+            ),
+            rx.box(),
+        ),
+        # Calendar grid (always shown, but disabled for non-validated employees)
         rx.box(
             rx.grid(
                 *[month_calendar(month) for month in range(1, 13)],
@@ -1355,23 +1576,16 @@ def calendar_grid() -> rx.Component:
                 ),
                 margin_top="6",
             ),
-            padding="6",
-            width="100%",
-        ),
-        # Empty state when employee cannot view their own calendar
-        rx.box(
-            rx.callout(
-                rx.callout.text(
-                    rx.text("Your calendar must be validated by your manager and HR before you can view it.", weight="bold"),
-                ),
-                icon="lock",
-                color_scheme="orange",
-                size="3",
-                margin_bottom="6",
+            # Apply gray overlay and disable pointer events for non-validated calendars
+            opacity=rx.cond(CalendarState.can_employee_view_own_calendar, "1", "0.4"),
+            style=rx.cond(
+                CalendarState.can_employee_view_own_calendar,
+                {},
+                {"pointer-events": "none", "user-select": "none"}
             ),
-            padding="6",
-            width="100%",
         ),
+        padding="6",
+        width="100%",
     )
 
 
@@ -1715,4 +1929,271 @@ def import_confirmation_dialog() -> rx.Component:
             max_width="600px",
         ),
         open=CalendarState.show_import_confirmation_dialog,
+    )
+
+
+def summary_panel() -> rx.Component:
+    """Sidebar panel showing hours/days summary and flag counts for viewed user."""
+    
+    # Month names for display
+    month_names = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ]
+    
+    def monthly_summary_row(month: int) -> rx.Component:
+        """Display a row for monthly summary."""
+        hours = CalendarState.monthly_hours_summary[month]
+        days = CalendarState.monthly_days_summary[month]
+        
+        return rx.hstack(
+            rx.text(month_names[month - 1], size="2", width="40px"),
+            rx.cond(
+                CalendarState.show_summary_in_days,
+                rx.text(f"{days.to(float):.2f} days", size="2", weight="medium"),
+                rx.text(f"{hours.to(float):.2f}h", size="2", weight="medium"),
+            ),
+            justify="between",
+            width="100%",
+            padding="4px 8px",
+        )
+    
+    def flag_count_row(flag_name: str, count: int) -> rx.Component:
+        """Display a row for flag count."""
+        return rx.hstack(
+            rx.text(flag_name, size="2"),
+            rx.badge(count.to(str), size="1", color_scheme="blue"),
+            justify="between",
+            width="100%",
+            padding="4px 8px",
+        )
+    
+    return rx.box(
+        rx.vstack(
+            # Header
+            rx.heading("Summary", size="4"),
+            
+            # Conversion ratio setting
+            rx.hstack(
+                rx.text("Hours/Day Ratio:", size="2", weight="bold"),
+                rx.el.input(
+                    type="number",
+                    value=CalendarState.hours_to_days_ratio.to(str),
+                    on_change=CalendarState.set_hours_to_days_ratio,
+                    min="1",
+                    max="24",
+                    step="0.5",
+                    width="80px",
+                    padding="4px",
+                ),
+                spacing="2",
+                align="center",
+            ),
+            
+            # Toggle button
+            rx.button(
+                rx.cond(
+                    CalendarState.show_summary_in_days,
+                    "Switch to Hours",
+                    "Switch to Days",
+                ),
+                on_click=CalendarState.toggle_summary_display,
+                size="2",
+                variant="soft",
+                width="100%",
+            ),
+            
+            # Yearly total
+            rx.box(
+                rx.hstack(
+                    rx.text("Year Total:", size="3", weight="bold"),
+                    rx.cond(
+                        CalendarState.show_summary_in_days,
+                        rx.text(
+                            f"{CalendarState.yearly_days_total.to(float):.2f} days",
+                            size="3",
+                            weight="bold",
+                            color="var(--blue-11)",
+                        ),
+                        rx.text(
+                            f"{CalendarState.yearly_hours_total.to(float):.2f}h",
+                            size="3",
+                            weight="bold",
+                            color="var(--blue-11)",
+                        ),
+                    ),
+                    justify="between",
+                    width="100%",
+                ),
+                padding="12px",
+                background="var(--blue-2)",
+                border_radius="6px",
+                margin_top="8px",
+                margin_bottom="8px",
+            ),
+            
+            # Monthly breakdown (collapsible) czo
+            rx.box(
+                rx.hstack(
+                    rx.icon("chevrons-up-down", size=20, color="var(--gray-9)"),
+                    rx.text("Monthly Breakdown", icon="chevrons-up-down", size="3", weight="bold",),
+                    on_click=CalendarState.toggle_monthly_breakdown,
+                ),
+                rx.cond(
+                    CalendarState.show_monthly_breakdown,
+                    rx.vstack(
+                        *[monthly_summary_row(m) for m in range(1, 13)],
+                        spacing="1",
+                        width="100%",
+                    ),
+                    rx.box(),
+                ),                
+                padding="12px",
+                background="var(--gray-2)",
+                margin_top="8px",
+            ),
+            
+            # Flag counts section
+            rx.heading("Flag Counts", size="4", margin_top="16px"),
+            rx.vstack(
+                flag_count_row("National Day Off", CalendarState.flag_counts["national day off"]),
+                flag_count_row("Akkodis Day Off", CalendarState.flag_counts["Akkodis offered day off"]),
+                flag_count_row("Regional Day Off", CalendarState.flag_counts["regional day off"]),
+                flag_count_row("Extra Day Off", CalendarState.flag_counts["extra day off"]),
+                flag_count_row("On Vacation", CalendarState.flag_counts["on vacation"]),
+                spacing="1",
+                width="100%",
+            ),
+            
+            # Quota information section (only visible when calendar is not LIVE)
+            rx.cond(
+                CalendarState.viewed_calendar_status != CalendarState.STATUS_VALIDATED,
+                rx.box(
+                    rx.heading("Vacation Quotas", size="4", margin_top="16px"),
+                    rx.vstack(
+                        # Vacation remaining
+                        rx.hstack(
+                            rx.icon("plane", size=16, color="var(--purple-10)"),
+                            rx.text("On Vacation:", size="2", weight="bold"),
+                            rx.text(
+                                f"{CalendarState.vacation_remaining.to(int)} / {CalendarState.vacation_quota_global.to(int)} days",
+                                size="2",
+                                color=rx.cond(
+                                    CalendarState.vacation_remaining > 0,
+                                    "var(--green-11)",
+                                    "var(--red-11)"
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        # Extra days remaining
+                        rx.hstack(
+                            rx.icon("calendar-plus", size=16, color="var(--gray-10)"),
+                            rx.text("Extra Days:", size="2", weight="bold"),
+                            rx.text(
+                                f"{CalendarState.extra_days_remaining.to(int)} / {CalendarState.extra_days_quota.get(CalendarState.viewed_user_id, 5.0).to(int)} days",
+                                size="2",
+                                color=rx.cond(
+                                    CalendarState.extra_days_remaining > 0,
+                                    "var(--green-11)",
+                                    "var(--red-11)"
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        # Manage quotas button (managers/HR only)
+                        rx.cond(
+                            # CalendarState.current_user_role in ["manager", "hr"],
+                            CalendarState.is_hr_or_manager,
+                            rx.button(
+                                rx.icon("settings", size=16),
+                                "Manage Quotas",
+                                on_click=lambda: CalendarState.open_quota_manager_dialog(CalendarState.viewed_user_id),
+                                size="2",
+                                variant="soft",
+                                width="100%",
+                            ),
+                            rx.box(),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    padding="12px",
+                    background="var(--purple-2)",
+                    border_radius="6px",
+                    margin_top="8px",
+                ),
+                rx.box(),
+            ),
+            
+            spacing="3",
+            width="100%",
+        ),
+        padding="16px",
+        border_left="1px solid var(--gray-6)",
+        min_width="250px",
+        max_width="300px",
+        height="100%",
+        overflow_y="auto",
+    )
+
+
+def export_image_dialog() -> rx.Component:
+    """Dialog for exporting calendar as PNG or PDF."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("Export Calendar as Image"),
+            rx.dialog.description(
+                "Export the current calendar view as an image file (landscape orientation).",
+                size="2",
+                margin_bottom="16px",
+            ),
+            rx.vstack(
+                rx.text(
+                    "The export will include:",
+                    size="2",
+                    weight="bold",
+                ),
+                rx.unordered_list(
+                    rx.list_item("Division and Project information"),
+                    rx.list_item("User name and role"),
+                    rx.list_item("Full calendar grid with all entries"),
+                    rx.list_item("Summary totals (hours/days)"),
+                    rx.list_item("Flag counts"),
+                    size="2",
+                ),
+                spacing="2",
+                width="100%",
+            ),
+            rx.flex(
+                rx.dialog.close(
+                    rx.button(
+                        "Cancel",
+                        variant="soft",
+                        color_scheme="gray",
+                        on_click=CalendarState.close_export_image_dialog,
+                    ),
+                ),
+                rx.button(
+                    rx.icon("image", size=16),
+                    "Export PNG",
+                    on_click=CalendarState.export_calendar_image_png,
+                    color_scheme="blue",
+                ),
+                rx.button(
+                    rx.icon("file-text", size=16),
+                    "Export PDF",
+                    on_click=CalendarState.export_calendar_image_pdf,
+                    color_scheme="green",
+                ),
+                spacing="3",
+                margin_top="16px",
+                justify="end",
+                width="100%",
+            ),
+            max_width="500px",
+        ),
+        open=CalendarState.show_export_image_dialog,
     )

@@ -4,6 +4,8 @@ import json
 from datetime import datetime
 from typing import Any, TypedDict
 import reflex as rx
+from rxcalendar.services.png_export_service import generate_calendar_png
+from rxcalendar.services.pdf_export_service import generate_calendar_pdf
 
 
 class HistoryEntry(TypedDict):
@@ -38,11 +40,19 @@ class CalendarState(rx.State):
     viewed_user_id: str = "hr001"  # Which user's calendar is being viewed
     show_user_selector: bool = False
     
-    # Projects data
+    # Divisions data (business focus grouping)
+    DIVISIONS: list[dict] = [
+        {"id": "div001", "name": "Infrastructure & Operations", "description": "Core infrastructure and operational projects"},
+        {"id": "div002", "name": "Digital & Innovation", "description": "Digital transformation and innovation initiatives"},
+        {"id": "div003", "name": "Research & Development", "description": "Future-focused research and development projects"},
+    ]
+    
+    # Projects data (now with division assignments)
     PROJECTS: list[dict] = [
-        {"id": "proj001", "name": "Atlas", "description": "Global Infrastructure Project"},
-        {"id": "proj002", "name": "Phoenix", "description": "Digital Transformation Initiative"},
-        {"id": "proj003", "name": "Horizon", "description": "Future Innovation Lab"},
+        {"id": "proj001", "name": "Atlas", "description": "Global Infrastructure Project", "division_id": "div001"},
+        {"id": "proj002", "name": "Phoenix", "description": "Digital Transformation Initiative", "division_id": "div002"},
+        {"id": "proj003", "name": "Horizon", "description": "Future Innovation Lab", "division_id": "div003"},
+        {"id": "proj004", "name": "Booster Hub", "description": "Hub digital", "division_id": "div002"},
     ]
     
     # Available regions in Spain
@@ -55,41 +65,51 @@ class CalendarState(rx.State):
         "Cantabria"
     ]
     
-    # Dummy users data with project and region assignments
+    # Dummy users data with project, division and region assignments
+    # Managers now have project_ids (array) and division_id
+    # Employees and HR have project_id (single) and division_id
     USERS: list[dict] = [
+        # Division: Infrastructure & Operations (Atlas project)
         # Project Atlas (6 users: 4 employees + 1 manager + 1 HR)        
-        {"id": "emp001", "name": "Alice Johnson", "role": "employee", "project_id": "proj001", "region": "Madrid"},
-        {"id": "emp002", "name": "Bob Smith", "role": "employee", "project_id": "proj001", "region": "Valencia"},
-        {"id": "emp003", "name": "Charlie Brown", "role": "employee", "project_id": "proj001", "region": "Andalousia"},
-        {"id": "emp004", "name": "Diana Prince", "role": "employee", "project_id": "proj001", "region": "Madrid"},
-        {"id": "mgr001", "name": "Kevin Anderson (Manager)", "role": "manager", "project_id": "proj001", "region": "Valencia"},
-        {"id": "hr001", "name": "Michael Scott (HR)", "role": "hr", "project_id": "proj001", "region": "Madrid"},
+        {"id": "emp001", "name": "Alice Johnson", "role": "employee", "project_id": "proj001", "division_id": "div001", "region": "Madrid"},
+        {"id": "emp002", "name": "Bob Smith", "role": "employee", "project_id": "proj001", "division_id": "div001", "region": "Valencia"},
+        {"id": "emp003", "name": "Charlie Brown", "role": "employee", "project_id": "proj001", "division_id": "div001", "region": "Andalousia"},
+        {"id": "emp004", "name": "Diana Prince", "role": "employee", "project_id": "proj001", "division_id": "div001", "region": "Madrid"},
+        {"id": "mgr001", "name": "Kevin Anderson (Manager)", "role": "manager", "project_id": "proj001", "project_ids": ["proj001"], "division_id": "div001", "region": "Valencia"},
+        {"id": "hr001", "name": "Michael Scott (HR)", "role": "hr", "project_id": "proj001", "division_id": "div001", "region": "Madrid"},
         
+        # Division: Digital & Innovation (Phoenix project)
         # Project Phoenix (6 users: 4 employees + 1 manager + 2 HR)
-        {"id": "emp005", "name": "Ethan Hunt", "role": "employee", "project_id": "proj002", "region": "Baleares"},
-        {"id": "emp006", "name": "Fiona Green", "role": "employee", "project_id": "proj002", "region": "Asturias"},
-        {"id": "emp007", "name": "George Wilson", "role": "employee", "project_id": "proj002", "region": "Cantabria"},
-        {"id": "emp008", "name": "Hannah White", "role": "employee", "project_id": "proj002", "region": "Baleares"},
-        {"id": "mgr002", "name": "Laura Martinez (Manager)", "role": "manager", "project_id": "proj002", "region": "Valencia"},
-        {"id": "hr002", "name": "Nancy Drew (HR)", "role": "hr", "project_id": "proj002", "region": "Baleares"},
-        {"id": "hr003", "name": "Oscar Wilde (HR)", "role": "hr", "project_id": "proj002", "region": "Asturias"},
-        
+        {"id": "emp005", "name": "Ethan Hunt", "role": "employee", "project_id": "proj002", "division_id": "div002", "region": "Baleares"},
+        {"id": "emp006", "name": "Fiona Green", "role": "employee", "project_id": "proj002", "division_id": "div002", "region": "Asturias"},
+        {"id": "emp007", "name": "George Wilson", "role": "employee", "project_id": "proj002", "division_id": "div002", "region": "Cantabria"},
+        {"id": "emp008", "name": "Hannah White", "role": "employee", "project_id": "proj002", "division_id": "div002", "region": "Baleares"},
+        {"id": "mgr002", "name": "Laura Martinez (Manager)", "role": "manager", "project_id": "proj002",  "project_ids": ["proj002", "proj003"], "division_id": "div002", "region": "Valencia"},
+        {"id": "hr002", "name": "Nancy Drew (HR)", "role": "hr", "project_id": "proj002", "division_id": "div002", "region": "Baleares"},
+        {"id": "hr003", "name": "Oscar Wilde (HR)", "role": "hr", "project_id": "proj002", "division_id": "div002", "region": "Asturias"},
+        # Project Atalante (3 users: 1 employee + 1 manager + 1 HR)
+        {"id": "emp011", "name": "Roger Hardley", "role": "employee", "project_id": "proj004", "division_id": "div002", "region": "Madrid"},
+        {"id": "hr006", "name": "Elena Rodriguez (HR)", "role": "hr", "project_id": "proj004", "division_id": "div002", "region": "Madrid"},
+        {"id": "mgr004", "name": "Filip Gonzalo (Manager)", "role": "manager", "project_id": "proj004", "project_ids": ["proj004"], "division_id": "div002", "region": "Madrid"},
+
+        # Division: Research & Development (Horizon project)
         # Project Horizon (5 users: 2 employees + 1 manager + 2 HR)
-        {"id": "emp009", "name": "Ian Malcolm", "role": "employee", "project_id": "proj003", "region": "Cantabria"},
-        {"id": "emp010", "name": "Julia Roberts", "role": "employee", "project_id": "proj003", "region": "Madrid"},
-        {"id": "mgr003", "name": "Marcus Lee (Manager)", "role": "manager", "project_id": "proj003", "region": "Andalousia"},
-        {"id": "hr004", "name": "Patricia Hill (HR)", "role": "hr", "project_id": "proj003", "region": "Cantabria"},
-        {"id": "hr005", "name": "Quincy Adams (HR)", "role": "hr", "project_id": "proj003", "region": "Madrid"},
+        {"id": "emp009", "name": "Ian Malcolm", "role": "employee", "project_id": "proj003", "division_id": "div003", "region": "Cantabria"},
+        {"id": "emp010", "name": "Julia Roberts", "role": "employee", "project_id": "proj003", "division_id": "div003", "region": "Madrid"},
+        {"id": "mgr003", "name": "Marcus Lee (Manager)", "role": "manager","project_id":"proj003", "project_ids": ["proj003"], "division_id": "div003", "region": "Andalousia"},
+        {"id": "hr004", "name": "Patricia Hill (HR)", "role": "hr", "project_id": "proj003", "division_id": "div003", "region": "Cantabria"},
+        {"id": "hr005", "name": "Quincy Adams (HR)", "role": "hr", "project_id": "proj003", "division_id": "div003", "region": "Madrid"},
     ]
     
     # Role-based flag permissions
-    HR_ONLY_FLAGS = [
+    # HR_ONLY_FLAGS are now empty - all previously HR-only flags moved to shared
+    HR_ONLY_FLAGS = []
+    
+    # HR_MANAGER_FLAGS: shared between HR and Managers (managers scope to their projects)
+    HR_MANAGER_FLAGS = [
         "national day off",
         "Akkodis offered day off",
-        "regional day off"
-    ]
-    
-    HR_MANAGER_FLAGS = [
+        "regional day off",
         "offered vacation client closed",
         "on vacation client closed",
         "extra day off",
@@ -137,10 +157,34 @@ class CalendarState(rx.State):
     bulk_hours_fri: float = 8.0  # Hours for Friday
     bulk_affected_days_count: int = 0  # Days that will be affected
     bulk_overwrite_count: int = 0  # Days that already have hours
+    bulk_apply_to_all_months: bool = False  # Apply to all 12 months
+    bulk_skip_conflicts: bool = False  # Skip conflicting days vs overwrite
 
     # Company-wide holidays (set by HR) and per-user notifications
     company_holidays: dict[str, str] = {}  # {date_iso: flag}
     notifications: dict[str, list[str]] = {}  # {user_id: [messages]}
+    
+    # Summary panel settings
+    hours_to_days_ratio: float = 8.0  # Custom conversion ratio (hours per day)
+    show_summary_in_days: bool = False  # Toggle between hours and days display
+    
+    # Image export dialog
+    show_export_image_dialog: bool = False
+    
+    # Team view collapsible state (persisted in localStorage via frontend)
+    team_view_expanded: bool = True  # Default: expanded
+    
+    # Vacation quota management
+    # Global company-wide quota for "on vacation" flag
+    vacation_quota_global: float = 25.0  # Default: 25 days per year
+    # Per-user quota for "extra day off" flag
+    extra_days_quota: dict[str, float] = {}  # {user_id: max_days}, default: 5.0
+    # Dialog state for quota management
+    show_quota_manager_dialog: bool = False
+    # Temporary values for quota editor
+    temp_vacation_quota: float = 25.0
+    temp_extra_days_quota: float = 5.0
+    editing_user_id: str = ""  # Which user's quota is being edited
     
     # Calendar validation status system
     # Status constants
@@ -178,6 +222,14 @@ class CalendarState(rx.State):
     _flags_cache: dict[str, dict[str, str]] = {}
     _hours_cache: dict[str, dict[str, float]] = {}
     _flag_colors_cache: dict[str, dict[str, str]] = {}
+
+    # collapsibale monthly breakdown in summary panel
+    show_monthly_breakdown: bool = True  # Default: expanded
+
+    # collapsibale quickview panel
+    show_quickview_panel: bool = True  # Default: expanded
+
+    hr_or_manager_role:bool = False
     
     FLAG_CHOICES = [
         ("", "(blank)"),
@@ -283,6 +335,113 @@ class CalendarState(rx.State):
         return []
     
     @rx.var
+    def monthly_hours_summary(self) -> dict[int, float]:
+        """Get total hours for each month (1-12) for viewed user's calendar.
+        Only counts hours from blank flag entries (no flag set)."""
+        user_id = self.viewed_user_id
+        monthly_totals = {month: 0.0 for month in range(1, 13)}
+        
+        if user_id in self._hours_cache:
+            for date_iso, hours in self._hours_cache[user_id].items():
+                # Only count if no flag is set (blank flag)
+                flag = self._flags_cache.get(user_id, {}).get(date_iso, "")
+                if not flag and hours > 0:
+                    try:
+                        # Extract month from date_iso (YYYY-MM-DD)
+                        month = int(date_iso.split("-")[1])
+                        monthly_totals[month] += hours
+                    except (IndexError, ValueError):
+                        pass
+        
+        return monthly_totals
+    
+    @rx.var
+    def yearly_hours_total(self) -> float:
+        """Get total hours for the year for viewed user's calendar."""
+        return sum(self.monthly_hours_summary.values())
+    
+    @rx.var
+    def monthly_days_summary(self) -> dict[int, float]:
+        """Get total days for each month using custom conversion ratio."""
+        return {month: hours / self.hours_to_days_ratio 
+                for month, hours in self.monthly_hours_summary.items()}
+    
+    @rx.var
+    def yearly_days_total(self) -> float:
+        """Get total days for the year using custom conversion ratio."""
+        return self.yearly_hours_total / self.hours_to_days_ratio
+    
+    @rx.var
+    def flag_counts(self) -> dict[str, int]:
+        """Count occurrences of specific flags for viewed user's calendar.
+        Tracks: national day off, Akkodis offered day off, regional day off, extra day off, on vacation."""
+        user_id = self.viewed_user_id
+        flags_to_count = [
+            "national day off",
+            "Akkodis offered day off", 
+            "regional day off",
+            "extra day off",
+            "on vacation"
+        ]
+        
+        counts = {flag: 0 for flag in flags_to_count}
+        
+        if user_id in self._flags_cache:
+            for date_iso, flag in self._flags_cache[user_id].items():
+                if flag in flags_to_count:
+                    counts[flag] += 1
+        
+        return counts
+    
+    @rx.var
+    def vacation_remaining(self) -> float:
+        """Remaining vacation days for viewed user (company-wide quota).
+        Returns 0 if calendar is LIVE (validated)."""
+        user_id = self.viewed_user_id
+        
+        # If calendar is LIVE, quotas don't apply
+        if self.calendar_status.get(user_id, self.STATUS_DRAFT) == self.STATUS_VALIDATED:
+            return 0.0
+        
+        # Company-wide quota
+        max_days = self.vacation_quota_global
+        used = self.flag_counts.get("on vacation", 0)
+        return max(0, max_days - used)
+    
+    @rx.var
+    def extra_days_remaining(self) -> float:
+        """Remaining extra days off for viewed user (per-user quota).
+        Returns 0 if calendar is LIVE (validated)."""
+        user_id = self.viewed_user_id
+        
+        # If calendar is LIVE, quotas don't apply
+        if self.calendar_status.get(user_id, self.STATUS_DRAFT) == self.STATUS_VALIDATED:
+            return 0.0
+        
+        # Per-user quota with default of 5.0
+        max_days = self.extra_days_quota.get(user_id, 5.0)
+        used = self.flag_counts.get("extra day off", 0)
+        return max(0, max_days - used)
+    
+    @rx.var
+    def can_use_vacation_flag(self) -> bool:
+        """Check if current user can still use 'on vacation' flag (quota available or is manager/HR)."""
+        # Managers and HR can always override
+        if self.current_user_role in ["manager", "hr"]:
+            return True
+        # Employees need quota remaining
+        return self.vacation_remaining > 0
+    
+    @rx.var
+    def can_use_extra_day_flag(self) -> bool:
+        """Check if current user can still use 'extra day off' flag (quota available or is manager/HR)."""
+        # Managers and HR can always override
+        if self.current_user_role in ["manager", "hr"]:
+            return True
+        # Employees need quota remaining
+        return self.extra_days_remaining > 0
+    
+    @rx.var
     def current_user(self) -> dict:
         """Get current user object."""
         for user in self.USERS:
@@ -304,6 +463,16 @@ class CalendarState(rx.State):
     def current_user_project(self) -> dict:
         """Get current user's project object."""
         project_id = self.current_user.get("project_id", "")
+
+        if not project_id:
+            project_ids = self.current_user.get("project_ids", [])
+            if project_ids:
+                print("Current user project IDs:", project_ids)
+                for proj in self.PROJECTS:
+                    if proj["id"] in project_ids:
+                        print("Returning project for current user:", proj)
+                        return proj  # czo - return first matching project - BUG WITH MULTI-PROJECT MANAGERS
+
         for project in self.PROJECTS:
             if project["id"] == project_id:
                 return project
@@ -315,18 +484,55 @@ class CalendarState(rx.State):
         return self.current_user_project["name"]
     
     @rx.var
+    def flag_choices_with_quota(self) -> list[tuple[str, str]]:
+        """Get flag choices with remaining quota info and grayed out if exhausted."""
+        # Start with base choices
+        choices = [
+            ("", "(blank)"),
+            ("offered vacation client closed", "offered vacation client closed"),
+            ("national day off", "national day off"),
+            ("Akkodis offered day off", "Akkodis offered day off"),
+        ]
+        
+        # Add "on vacation" with remaining count
+        vac_remaining = self.vacation_remaining
+        if self.can_use_vacation_flag:
+            vac_label = f"on vacation ({int(vac_remaining)} remaining)"
+            choices.append(("on vacation", vac_label))
+        else:
+            # Gray out by marking as disabled (will handle in UI)
+            vac_label = f"on vacation (0 remaining - quota exhausted)"
+            choices.append(("on vacation_DISABLED", vac_label))
+        
+        choices.append(("on vacation client closed", "on vacation client closed"))
+        choices.append(("regional day off", "regional day off"))
+        
+        # Add "extra day off" with remaining count
+        extra_remaining = self.extra_days_remaining
+        if self.can_use_extra_day_flag:
+            extra_label = f"extra day off ({int(extra_remaining)} remaining)"
+            choices.append(("extra day off", extra_label))
+        else:
+            # Gray out by marking as disabled
+            extra_label = f"extra day off (0 remaining - quota exhausted)"
+            choices.append(("extra day off_DISABLED", extra_label))
+        
+        choices.append(("project_special_worktime", "project_special_worktime"))
+        
+        return choices
+    
+    @rx.var
     def visible_users(self) -> list[dict]:
         """Get users whose calendars are visible to current user.
         
         Rules:
         - Employees: see only themselves (if calendar is validated)
-        - Managers: see all users in their project
-        - HR: see all users (cross-project)
+        - Managers: see all users in their assigned projects (can be multiple within same division)
+        - HR: see all users (cross-project, cross-division)
         
         Also initializes calendar status to draft if not exists.
         """
         role = self.current_user_role
-        current_project_id = self.current_user.get("project_id", "")
         
         # Initialize all user calendar statuses to draft if not exists
         for user in self.USERS:
@@ -337,59 +543,93 @@ class CalendarState(rx.State):
                 self.status_history[uid] = []
         
         if role == "hr":
-            # HR sees everyone
+            # HR sees everyone across all divisions and projects
             return self.USERS
         elif role == "manager":
-            # Managers see all users in their project
-            return [u for u in self.USERS if u.get("project_id") == current_project_id]
+            # Managers see all users in their assigned projects (project_ids array)
+            manager_project_ids = self.current_user.get("project_ids", [])
+            manager_project_id = self.current_user.get("project_id", "") # czo
+            return [u for u in self.USERS if u.get("project_id") in manager_project_ids or u.get("project_id") == manager_project_id]
         else:
             # Employees see only themselves
             return [self.current_user]
     
     @rx.var
-    def users_grouped_by_project(self) -> list[tuple[str, list[tuple[str, list[dict]]]]]:
-        """Get visible users grouped by project and then by region.
-        Returns list of (project_name, [(region_name, [users])]) tuples.
-        Structure: Project → Region → Users (all sorted alphabetically).
+    def users_grouped_by_project(self) -> list[tuple[str, list[tuple[str, list[tuple[str, list[dict]]]]]]]:
+        """Get visible users grouped by division, then project, then region.
+        Returns list of (division_name, [(project_name, [(region_name, [users])])]) tuples.
+        Structure: Division → Project → Region → Users (all sorted alphabetically).
         """
         visible = self.visible_users
+        # print("Visible users for grouping:", visible)
         
-        # Group by project first
-        projects_dict = {}
+        # Group by division first
+        divisions_dict = {}
         for user in visible:
+            division_id = user.get("division_id", "")
+            # Find division name
+            division_name = "Unknown"
+            for div in self.DIVISIONS:
+                if div["id"] == division_id:
+                    division_name = div["name"]
+                    break
+            
+            if division_name not in divisions_dict:
+                divisions_dict[division_name] = {}
+            
+            # Group by project within division
             project_id = user.get("project_id", "")
-            # Find project name
-            project_name = "Unknown"
+            project_name = "" # czo "Unknown"
             for proj in self.PROJECTS:
                 if proj["id"] == project_id:
                     project_name = proj["name"]
                     break
             
-            if project_name not in projects_dict:
-                projects_dict[project_name] = []
-            projects_dict[project_name].append(user)
+            # czo start
+            if not project_id:
+                project_ids = user.get("project_ids", [])
+                if project_ids:
+                    for proj in self.PROJECTS:
+                        if proj["id"] in project_ids:
+                            project_name = proj["name"]
+                            break
+                            # project_name += ' / ' + proj["name"] if len(project_name) > 0 else proj["name"]
+            # print("User:", user["name"], "Project Name:", project_name)
+                            
+            # czo end
+
+            if project_name not in divisions_dict[division_name]:
+                divisions_dict[division_name][project_name] = []
+            divisions_dict[division_name][project_name].append(user)
         
-        # Now group users within each project by region
+        # print("Divisions dict after grouping:", divisions_dict)
+        # Now organize into final structure with regions
         result = []
-        for project_name in sorted(projects_dict.keys()):
-            users_in_project = projects_dict[project_name]
+        for division_name in sorted(divisions_dict.keys()):
+            projects_dict = divisions_dict[division_name]
+            projects_list = []
             
-            # Group by region
-            regions_dict = {}
-            for user in users_in_project:
-                region = user.get("region", "Unknown")
-                if region not in regions_dict:
-                    regions_dict[region] = []
-                regions_dict[region].append(user)
+            for project_name in sorted(projects_dict.keys()):
+                users_in_project = projects_dict[project_name]
+                
+                # Group by region within project
+                regions_dict = {}
+                for user in users_in_project:
+                    region = user.get("region", "Unknown")
+                    if region not in regions_dict:
+                        regions_dict[region] = []
+                    regions_dict[region].append(user)
+                
+                # Sort users within each region by name
+                for region in regions_dict:
+                    regions_dict[region].sort(key=lambda u: u.get("name", ""))
+                
+                # Convert to sorted list of (region, users) tuples
+                regions_list = sorted(regions_dict.items())
+                projects_list.append((project_name, regions_list))
             
-            # Sort users within each region by name
-            for region in regions_dict:
-                regions_dict[region].sort(key=lambda u: u.get("name", ""))
-            
-            # Convert to sorted list of (region, users) tuples
-            regions_list = sorted(regions_dict.items())
-            result.append((project_name, regions_list))
-        
+            result.append((division_name, projects_list))
+        # print("Users grouped by project:", result)
         return result
     
     @rx.var
@@ -406,11 +646,11 @@ class CalendarState(rx.State):
         
         if self.current_user_role == "hr":
             return True  # HR can edit any calendar
-
-        if self.current_user_role == "manager" and self.viewed_user_project_name == self.current_project_name and self.viewed_user_role != "hr":
+    
+        if self.current_user_role == "manager" and self.current_project_name in self.viewed_user_project_name  and self.viewed_user_role != "hr":
             return True  # Managers can modify employees in their own project (not other managers or HR)
         
-        return False  # Managers and employees cannot edit others' calendars
+        return False  # Employees cannot edit others' calendars
     
     @rx.var
     def viewed_user_role(self) -> str:
@@ -424,13 +664,28 @@ class CalendarState(rx.State):
     def viewed_user_project_name(self) -> str:
         """Get the project name of the user whose calendar is being viewed."""
         for user in self.USERS:
+            print("Checking user:", user)
             if user["id"] == self.viewed_user_id:
                 project_id = user.get("project_id", "")
+                print("Viewed user project_id:", project_id)
+
+                if not project_id:
+                    print("User has no single project_id, checking project_ids array")
+                    project_ids = user.get("project_ids", [])
+                    if project_ids:
+                        names = []
+                        for proj in self.PROJECTS:
+                            if proj["id"] in project_ids:
+                                return proj["name"]
+                        #         names.append(proj["name"])
+                        # return " / ".join(names)
+                    
                 for proj in self.PROJECTS:
                     if proj["id"] == project_id:
                         return proj["name"]
+                
         return "Unknown"
-    
+
     @rx.var
     def viewed_user_name(self) -> str:
         """Get the name of the user whose calendar is being viewed."""
@@ -439,16 +694,16 @@ class CalendarState(rx.State):
                 return user["name"]
         return "Unknown"
     
-    @rx.var
-    def viewed_user_project_name(self) -> str:
-        """Get the project name of the user whose calendar is being viewed."""
-        for user in self.USERS:
-            if user["id"] == self.viewed_user_id:
-                project_id = user.get("project_id", "")
-                for proj in self.PROJECTS:
-                    if proj["id"] == project_id:
-                        return proj["name"]
-        return "Unknown"
+    # @rx.var
+    # def viewed_user_project_name(self) -> str:
+    #     """Get the project name of the user whose calendar is being viewed."""
+    #     for user in self.USERS:
+    #         if user["id"] == self.viewed_user_id:
+    #             project_id = user.get("project_id", "")
+    #             for proj in self.PROJECTS:
+    #                 if proj["id"] == project_id:
+    #                     return proj["name"]
+    #     return "Unknown"
     
     @rx.var
     def allowed_flags(self) -> list[tuple[str, str]]:
@@ -728,6 +983,22 @@ class CalendarState(rx.State):
                 duration=5000
             )
         
+        # Quota validation for employees (managers/HR can override)
+        if self.current_user_role == "employee":
+            if flag == "on vacation" and not self.can_use_vacation_flag:
+                return rx.toast.error(
+                    f"Quota Exhausted: No vacation days remaining (quota: {int(self.vacation_quota_global)} days)",
+                    position="top-center",
+                    duration=5000
+                )
+            elif flag == "extra day off" and not self.can_use_extra_day_flag:
+                user_quota = self.extra_days_quota.get(self.viewed_user_id, 5.0)
+                return rx.toast.error(
+                    f"Quota Exhausted: No extra days off remaining (quota: {int(user_quota)} days)",
+                    position="top-center",
+                    duration=5000
+                )
+        
         # Get all weekdays in range (or single day if end date not set or same as start)
         if self.range_end_date and self.range_end_date != self.range_start_date:
             target_dates = self.get_weekdays_in_range(self.range_start_date, self.range_end_date)
@@ -752,8 +1023,11 @@ class CalendarState(rx.State):
                 duration=5000
             )
         
-        # HR-only flag propagation: if HR sets an HR-only flag, apply company-wide or region-wide
-        if self.current_user_role == "hr" and flag in self.HR_ONLY_FLAGS:
+        # HR-Manager shared flag propagation: national/regional/Akkodis day off
+        # HR: applies company-wide or region-wide
+        # Manager: applies only to their assigned project teams
+        hr_manager_propagation_flags = ["national day off", "Akkodis offered day off", "regional day off"]
+        if flag in hr_manager_propagation_flags and self.current_user_role in ["hr", "manager"]:
             # For regional day off, check if region is selected
             if flag == "regional day off" and not self.selected_region:
                 return rx.toast.error(
@@ -768,18 +1042,39 @@ class CalendarState(rx.State):
                 if u["id"] not in self.notifications:
                     self.notifications[u["id"]] = []
             
-            # Determine target users based on flag type
+            # Determine target users based on flag type and user role
             target_users = []
             scope_description = ""
             
-            if flag == "regional day off":
-                # Only users in the selected region
-                target_users = [u for u in self.USERS if u.get("region") == self.selected_region]
-                scope_description = f"region {self.selected_region}"
-            else:
-                # National day off or Akkodis offered day off: all users
-                target_users = self.USERS
-                scope_description = "company-wide"
+            if self.current_user_role == "hr":
+                # HR: company-wide or region-wide propagation
+                if flag == "regional day off":
+                    # Only users in the selected region
+                    target_users = [u for u in self.USERS if u.get("region") == self.selected_region]
+                    scope_description = f"region {self.selected_region}"
+                else:
+                    # National day off or Akkodis offered day off: all users
+                    target_users = self.USERS
+                    scope_description = "company-wide"
+            elif self.current_user_role == "manager":
+                # Manager: only their assigned project teams
+                manager_project_ids = self.current_user.get("project_ids", [])
+                target_users = [u for u in self.USERS if u.get("project_id") in manager_project_ids]
+                
+                # Build scope description with project names
+                project_names = [p["name"] for p in self.PROJECTS if p["id"] in manager_project_ids]
+                scope_description = f"project(s): {', '.join(project_names)}"
+                
+                # For regional day off, managers must select a region (filter further)
+                if flag == "regional day off":
+                    if not self.selected_region:
+                        return rx.toast.error(
+                            "Please select a region for the regional day off",
+                            position="top-center",
+                            duration=5000
+                        )
+                    target_users = [u for u in target_users if u.get("region") == self.selected_region]
+                    scope_description += f", region: {self.selected_region}"
             
             total_dates = 0
             for date_iso in allowed_dates:
@@ -894,12 +1189,12 @@ class CalendarState(rx.State):
                     )
                 
                 viewed_project_id = viewed_user.get("project_id", "")
-                manager_project_id = self.current_user.get("project_id", "")
+                manager_project_ids = self.current_user.get("project_ids", [])
                 
-                # Manager can only set project_special_worktime for their own project
-                if viewed_project_id != manager_project_id:
+                # Manager can only set project_special_worktime for their assigned projects
+                if viewed_project_id not in manager_project_ids:
                     return rx.toast.error(
-                        "Access Denied: Managers can only set project_special_worktime for their own project",
+                        "Access Denied: Managers can only set project_special_worktime for their assigned projects",
                         position="top-center",
                         duration=5000
                     )
@@ -1318,13 +1613,26 @@ class CalendarState(rx.State):
         self.show_bulk_hours_confirmation = False
         self.bulk_affected_days_count = 0
         self.bulk_overwrite_count = 0
+        self.bulk_skip_conflicts = False
+    
+    def bulk_hours_overwrite(self):
+        """User chose to overwrite conflicts - proceed with apply."""
+        self.bulk_skip_conflicts = False
+        self.show_bulk_hours_confirmation = False
+        return self.apply_bulk_hours()
+    
+    def bulk_hours_skip(self):
+        """User chose to skip conflicts - proceed with apply."""
+        self.bulk_skip_conflicts = True
+        self.show_bulk_hours_confirmation = False
+        return self.apply_bulk_hours()
     
     def set_bulk_hours_mon_thu(self, value: str):
         """Set bulk hours for Monday-Thursday."""
         try:
             hours = float(value)
             # Validate range 6.0 to 19.0
-            self.bulk_hours_mon_thu = max(6.0, min(19.0, hours))
+            self.bulk_hours_mon_thu = hours # max(6.0, min(19.0, hours))
         except ValueError:
             self.bulk_hours_mon_thu = 8.0
     
@@ -1333,9 +1641,26 @@ class CalendarState(rx.State):
         try:
             hours = float(value)
             # Validate range 6.0 to 19.0
-            self.bulk_hours_fri = max(6.0, min(19.0, hours))
+            self.bulk_hours_fri = hours # max(6.0, min(19.0, hours))
         except ValueError:
             self.bulk_hours_fri = 6.0
+    
+    def toggle_summary_display(self):
+        """Toggle between hours and days display in summary."""
+        self.show_summary_in_days = not self.show_summary_in_days
+    
+    def set_hours_to_days_ratio(self, value: str):
+        """Set custom hours-to-days conversion ratio."""
+        try:
+            ratio = float(value)
+            # Validate range 1.0 to 24.0
+            self.hours_to_days_ratio = max(1.0, min(24.0, ratio))
+        except ValueError:
+            self.hours_to_days_ratio = 8.0
+    
+    def set_bulk_apply_to_all_months(self, checked: bool):
+        """Set whether to apply bulk hours to all months."""
+        self.bulk_apply_to_all_months = checked
 
     def get_flag_for_date(self, date_iso: str) -> str:
         """Get flag for a date from viewed user's calendar."""
@@ -1355,24 +1680,26 @@ class CalendarState(rx.State):
         """Preview how many days will be affected by bulk hours setting."""
         from datetime import timedelta
         
-        # Get all weekdays in the selected month for year 2026
+        # Get all weekdays in the selected month(s) for year 2026
         year = 2026
-        month = self.selected_month
+        months_to_process = list(range(1, 13)) if self.bulk_apply_to_all_months else [self.selected_month]
         
-        # Get first and last day of month
-        first_day = datetime(year, month, 1)
-        if month == 12:
-            last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
-        else:
-            last_day = datetime(year, month + 1, 1) - timedelta(days=1)
-        
-        # Get all weekdays
+        # Collect all weekdays across selected months
         weekdays = []
-        current = first_day
-        while current <= last_day:
-            if current.weekday() < 5:  # Monday to Friday
-                weekdays.append(current.strftime("%Y-%m-%d"))
-            current += timedelta(days=1)
+        for month in months_to_process:
+            # Get first and last day of month
+            first_day = datetime(year, month, 1)
+            if month == 12:
+                last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
+            else:
+                last_day = datetime(year, month + 1, 1) - timedelta(days=1)
+            
+            # Get all weekdays in this month
+            current = first_day
+            while current <= last_day:
+                if current.weekday() < 5:  # Monday to Friday
+                    weekdays.append(current.strftime("%Y-%m-%d"))
+                current += timedelta(days=1)
         
         # Get all visible users
         target_users = self.visible_users
@@ -1408,32 +1735,34 @@ class CalendarState(rx.State):
             return self.apply_bulk_hours()
     
     def apply_bulk_hours(self):
-        """Apply bulk hours to all visible users for the selected month."""
+        """Apply bulk hours to all visible users for the selected month(s)."""
         from datetime import timedelta
         
-        # Get all weekdays in the selected month
+        # Get all weekdays in the selected month(s)
         year = 2026
-        month = self.selected_month
+        months_to_process = list(range(1, 13)) if self.bulk_apply_to_all_months else [self.selected_month]
         
-        first_day = datetime(year, month, 1)
-        if month == 12:
-            last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
-        else:
-            last_day = datetime(year, month + 1, 1) - timedelta(days=1)
-        
-        # Get all weekdays
+        # Collect all weekdays across selected months
         weekdays = []
-        current = first_day
-        while current <= last_day:
-            if current.weekday() < 5:  # Monday to Friday
-                weekdays.append((current.strftime("%Y-%m-%d"), current.weekday()))
-            current += timedelta(days=1)
+        for month in months_to_process:
+            first_day = datetime(year, month, 1)
+            if month == 12:
+                last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
+            else:
+                last_day = datetime(year, month + 1, 1) - timedelta(days=1)
+            
+            current = first_day
+            while current <= last_day:
+                if current.weekday() < 5:  # Monday to Friday
+                    weekdays.append((current.strftime("%Y-%m-%d"), current.weekday()))
+                current += timedelta(days=1)
         
         # Get all visible users
         target_users = self.visible_users
         
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         total_updated = 0
+        total_skipped = 0
         
         for user in target_users:
             uid = user["id"]
@@ -1471,6 +1800,11 @@ class CalendarState(rx.State):
                 if prev_hours == hours:
                     continue
                 
+                # Conflict handling: if bulk_skip_conflicts is True and there are existing hours, skip
+                if self.bulk_skip_conflicts and prev_hours > 0:
+                    total_skipped += 1
+                    continue
+                
                 # Create history entry
                 action = "hours changed (bulk set)" if prev_hours > 0 else "hours added (bulk set)"
                 entry = {
@@ -1504,7 +1838,10 @@ class CalendarState(rx.State):
                         # Auto-revert to pending_manager_validation
                         if old_status != self.STATUS_PENDING_MANAGER:
                             self.calendar_status[uid] = self.STATUS_PENDING_MANAGER
-                            changes_desc = f"HR bulk-set hours for month {month}"
+                            if self.bulk_apply_to_all_months:
+                                changes_desc = "HR bulk-set hours for all months"
+                            else:
+                                changes_desc = f"HR bulk-set hours for month {self.selected_month}"
                             self._log_status_change(uid, old_status, self.STATUS_PENDING_MANAGER, changes_desc)
         
         # Close dialogs
@@ -1515,11 +1852,78 @@ class CalendarState(rx.State):
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ]
-        return rx.toast.success(
-            f"Bulk hours set for {month_names[month - 1]}: {total_updated} day(s) updated across {len(target_users)} user(s)",
-            position="top-center",
-            duration=6000
-        )
+        
+        if self.bulk_apply_to_all_months:
+            msg = f"Bulk hours set for ALL MONTHS: {total_updated} day(s) updated"
+        else:
+            msg = f"Bulk hours set for {month_names[self.selected_month - 1]}: {total_updated} day(s) updated"
+        
+        if total_skipped > 0:
+            msg += f", {total_skipped} day(s) skipped (conflicts preserved)"
+        
+        msg += f" across {len(target_users)} user(s)"
+        
+        return rx.toast.success(msg, position="top-center", duration=6000)
+    
+    def open_quota_manager_dialog(self, user_id: str = ""):
+        """Open the quota manager dialog for a specific user or global settings."""
+        # Check RBAC: only managers and HR can manage quotas
+        if self.current_user_role not in ["manager", "hr"]:
+            return rx.toast.error("Access Denied: Only managers and HR can manage quotas", position="top-center")
+        
+        # If user_id provided, edit that user's extra days quota
+        # Otherwise, edit global vacation quota
+        if user_id:
+            self.editing_user_id = user_id
+            self.temp_extra_days_quota = self.extra_days_quota.get(user_id, 5.0)
+            self.temp_vacation_quota = self.vacation_quota_global
+        else:
+            self.editing_user_id = ""
+            self.temp_vacation_quota = self.vacation_quota_global
+            self.temp_extra_days_quota = 5.0
+        
+        self.show_quota_manager_dialog = True
+    
+    def close_quota_manager_dialog(self):
+        """Close the quota manager dialog and reset temp values."""
+        self.show_quota_manager_dialog = False
+        self.editing_user_id = ""
+        self.temp_vacation_quota = 25.0
+        self.temp_extra_days_quota = 5.0
+    
+    def set_temp_vacation_quota(self, value: str):
+        """Set temporary vacation quota value with validation."""
+        try:
+            val = float(value)
+            # Allow 0-365 days
+            self.temp_vacation_quota = max(0, min(365, val))
+        except:
+            pass
+    
+    def set_temp_extra_days_quota(self, value: str):
+        """Set temporary extra days quota value with validation."""
+        try:
+            val = float(value)
+            # Allow 0-100 days
+            self.temp_extra_days_quota = max(0, min(100, val))
+        except:
+            pass
+    
+    def save_quota_settings(self):
+        """Save quota settings (global vacation or per-user extra days)."""
+        if self.editing_user_id:
+            # Save per-user extra days quota
+            self.extra_days_quota[self.editing_user_id] = self.temp_extra_days_quota
+            user = next((u for u in self.USERS if u["id"] == self.editing_user_id), None)
+            user_name = user["name"] if user else "User"
+            msg = f"Updated extra days quota for {user_name}: {self.temp_extra_days_quota} days"
+        else:
+            # Save global vacation quota
+            self.vacation_quota_global = self.temp_vacation_quota
+            msg = f"Updated company-wide vacation quota: {self.temp_vacation_quota} days"
+        
+        self.close_quota_manager_dialog()
+        return rx.toast.success(msg, position="top-center", duration=4000)
     
     def export_to_json(self):
         """Export the current user's calendar with full history to a JSON file."""
@@ -1621,6 +2025,154 @@ class CalendarState(rx.State):
         if target == "bulk":
             # Pre-select all visible users for bulk export
             self.export_bulk_user_ids = [u["id"] for u in self.visible_users]
+    
+    def open_export_image_dialog(self):
+        """Open image export dialog (managers and HR only)."""
+        if self.current_user_role == "employee":
+            return rx.toast.error(
+                "Access Denied: Only managers and HR can export calendar images",
+                position="top-center",
+                duration=5000
+            )
+        self.show_export_image_dialog = True
+    
+    def close_export_image_dialog(self):
+        """Close image export dialog."""
+        self.show_export_image_dialog = False
+    
+    def toggle_team_view(self):
+        """Toggle team view expanded/collapsed state."""
+        self.team_view_expanded = not self.team_view_expanded
+    
+    async def export_calendar_image_png(self):
+        """Export calendar as PNG image (landscape orientation).
+        Includes division, project, owner, and summary information in header."""
+        # Get viewed user info
+        viewed_user = next((u for u in self.USERS if u["id"] == self.viewed_user_id), None)
+        if not viewed_user:
+            return rx.toast.error("Error: User not found", position="top-center", duration=3000)
+        
+        # Get division, project info
+        division_name = "Unknown Division"
+        project_name = "Unknown Project"
+        
+        for div in self.DIVISIONS:
+            if div["id"] == viewed_user.get("division_id"):
+                division_name = div["name"]
+                break
+        
+        for proj in self.PROJECTS:
+            if proj["id"] == viewed_user.get("project_id"):
+                project_name = proj["name"]
+                break
+        
+        # Prepare monthly data for all 12 months
+        monthly_data = {}
+        user_id = self.viewed_user_id
+        
+        if user_id in self.history:
+            for date_str, entries in self.history[user_id].items():
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                month = date_obj.month
+                
+                if month not in monthly_data:
+                    monthly_data[month] = []
+                
+                # Get current values for this date
+                day_entry = {
+                    "date": date_str,
+                    "hours": self._hours_cache.get(user_id, {}).get(date_str, 0.0),
+                    "flag": self._flags_cache.get(user_id, {}).get(date_str, "")
+                }
+                monthly_data[month].append(day_entry)
+        
+        # Prepare calendar data
+        calendar_data = {
+            "user_name": viewed_user["name"],
+            "user_role": viewed_user["role"],
+            "division_name": division_name,
+            "project_name": project_name,
+            "yearly_hours": self.yearly_hours_total,
+            "yearly_days": self.yearly_days_total,
+            "hours_to_days_ratio": self.hours_to_days_ratio,
+            "flag_counts": dict(self.flag_counts),
+            "monthly_data": monthly_data,
+            "flag_colors": self.FLAG_COLORS
+        }
+        
+        # Generate PNG
+        png_bytes = await generate_calendar_png(calendar_data)
+        
+        # Generate filename
+        filename = f"calendar_2026_{viewed_user['name'].replace(' ', '_')}.png"
+        
+        # Return download
+        return rx.download(data=png_bytes, filename=filename)
+    
+    async def export_calendar_image_pdf(self):
+        """Export calendar as PDF image (landscape orientation).
+        Includes division, project, owner, and summary information in header."""
+        # Get viewed user info
+        viewed_user = next((u for u in self.USERS if u["id"] == self.viewed_user_id), None)
+        if not viewed_user:
+            return rx.toast.error("Error: User not found", position="top-center", duration=3000)
+        
+        # Get division, project info
+        division_name = "Unknown Division"
+        project_name = "Unknown Project"
+        
+        for div in self.DIVISIONS:
+            if div["id"] == viewed_user.get("division_id"):
+                division_name = div["name"]
+                break
+        
+        for proj in self.PROJECTS:
+            if proj["id"] == viewed_user.get("project_id"):
+                project_name = proj["name"]
+                break
+        
+        # Prepare monthly data for all 12 months
+        monthly_data = {}
+        user_id = self.viewed_user_id
+        
+        if user_id in self.history:
+            for date_str, entries in self.history[user_id].items():
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                month = date_obj.month
+                
+                if month not in monthly_data:
+                    monthly_data[month] = []
+                
+                # Get current values for this date
+                day_entry = {
+                    "date": date_str,
+                    "hours": self._hours_cache.get(user_id, {}).get(date_str, 0.0),
+                    "flag": self._flags_cache.get(user_id, {}).get(date_str, "")
+                }
+                monthly_data[month].append(day_entry)
+        
+        # Prepare calendar data
+        calendar_data = {
+            "user_name": viewed_user["name"],
+            "user_role": viewed_user["role"],
+            "division_name": division_name,
+            "project_name": project_name,
+            "yearly_hours": self.yearly_hours_total,
+            "yearly_days": self.yearly_days_total,
+            "hours_to_days_ratio": self.hours_to_days_ratio,
+            "flag_counts": dict(self.flag_counts),
+            "monthly_data": monthly_data,
+            "flag_colors": self.FLAG_COLORS
+        }
+        
+        # Generate PDF
+        pdf_bytes = await generate_calendar_pdf(calendar_data)
+        
+        # Generate filename
+        filename = f"calendar_2026_{viewed_user['name'].replace(' ', '_')}.pdf"
+        
+        # Return download
+        return rx.download(data=pdf_bytes, filename=filename)
     
     def toggle_bulk_export_user(self, user_id: str):
         """Toggle user selection for bulk export."""
@@ -2110,3 +2662,18 @@ class CalendarState(rx.State):
         if 1 <= self.selected_month <= 12:
             return month_names[self.selected_month - 1]
         return "Unknown"
+
+    @rx.event
+    def toggle_monthly_breakdown(self):
+        """Toggle monthly breakdown view."""
+        self.show_monthly_breakdown = not self.show_monthly_breakdown
+
+    @rx.event
+    def toggle_quickview_panel(self):
+        """Toggle quickview panel visibility."""
+        self.show_quickview_panel = not self.show_quickview_panel
+
+    @rx.var
+    def is_hr_or_manager(self) -> bool:
+        """Check if current user is HR or manager."""
+        return self.current_user_role in ["hr", "manager"]
